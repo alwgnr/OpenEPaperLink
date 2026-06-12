@@ -25,6 +25,7 @@
 #include "system.h"
 #include "tag_db.h"
 #include "udp.h"
+#include "virtualtag.h"
 #include "wifimanager.h"
 #include <sys/time.h>
 
@@ -219,6 +220,22 @@ void wsSendAPitem(struct APlist *apitem) {
     ap["channel"] = apitem->channelId;
     ap["version"] = version_str;
 
+    if (wsMutex) xSemaphoreTake(wsMutex, portMAX_DELAY);
+    ws.textAll(doc.as<String>());
+    if (wsMutex) xSemaphoreGive(wsMutex);
+}
+
+void wsSendVirtualLed(const uint8_t *mac, const uint8_t pattern[12]) {
+    char hexmac[17];
+    mac2hex(mac, hexmac);
+    char hexpattern[25];
+    for (uint8_t i = 0; i < 12; i++) {
+        sprintf(hexpattern + (i * 2), "%02x", pattern[i]);
+    }
+    JsonDocument doc;
+    JsonObject led = doc["vled"].to<JsonObject>();
+    led["mac"] = String(hexmac);
+    led["pattern"] = String(hexpattern);
     if (wsMutex) xSemaphoreTake(wsMutex, portMAX_DELAY);
     ws.textAll(doc.as<String>());
     if (wsMutex) xSemaphoreGive(wsMutex);
@@ -482,6 +499,58 @@ void init_web() {
         }
     });
 
+    // Create a virtual (simulated) tag. Params: mac, hwtype, [alias]
+    server.on("/vtag_create", HTTP_POST, [](AsyncWebServerRequest *request) {
+        if (config.runStatus != RUNSTATUS_RUN) {
+            request->send(409, "text/plain", "Come back later");
+            return;
+        }
+        if (!request->hasParam("mac", true) || !request->hasParam("hwtype", true)) {
+            request->send(400, "text/plain", "missing mac or hwtype");
+            return;
+        }
+        uint8_t mac[8];
+        if (!hex2mac(request->getParam("mac", true)->value(), mac)) {
+            request->send(400, "text/plain", "malformatted mac");
+            return;
+        }
+        if (tagRecord::findByMAC(mac) != nullptr) {
+            request->send(409, "text/plain", "a tag with this mac already exists");
+            return;
+        }
+        uint8_t hwType = static_cast<uint8_t>(request->getParam("hwtype", true)->value().toInt());
+        String alias = request->hasParam("alias", true) ? request->getParam("alias", true)->value() : String("");
+        vtagCreate(mac, hwType, alias);
+        request->send(200, "text/plain", "Ok, virtual tag created");
+    });
+
+    // Simulate a virtual tag waking up. Params: mac, event
+    // event = checkin | button1 | button2 | button3 | gpio | nfc
+    server.on("/vtag_event", HTTP_POST, [](AsyncWebServerRequest *request) {
+        if (!request->hasParam("mac", true) || !request->hasParam("event", true)) {
+            request->send(400, "text/plain", "missing mac or event");
+            return;
+        }
+        uint8_t mac[8];
+        if (!hex2mac(request->getParam("mac", true)->value(), mac)) {
+            request->send(400, "text/plain", "malformatted mac");
+            return;
+        }
+        if (!vtagIsVirtual(mac)) {
+            request->send(400, "text/plain", "not a virtual tag");
+            return;
+        }
+        String event = request->getParam("event", true)->value();
+        uint8_t wakeupReason = WAKEUP_REASON_TIMED;
+        if (event == "button1") wakeupReason = WAKEUP_REASON_BUTTON1;
+        else if (event == "button2") wakeupReason = WAKEUP_REASON_BUTTON2;
+        else if (event == "button3") wakeupReason = WAKEUP_REASON_BUTTON3;
+        else if (event == "gpio") wakeupReason = WAKEUP_REASON_GPIO;
+        else if (event == "nfc") wakeupReason = WAKEUP_REASON_NFC;
+        vtagEvent(mac, wakeupReason);
+        request->send(200, "text/plain", "Ok, event sent");
+    });
+
     server.on("/led_flash", HTTP_GET, [](AsyncWebServerRequest *request) {
         //  color picker: https://roger-random.github.io/RGB332_color_wheel_three.js/
         //  http GET to /led_flash?mac=000000000000&pattern=000000000000000000000000
@@ -552,7 +621,11 @@ void init_web() {
         response->print("\"hasSubGhz\": \"0\", ");
 #endif
 
-        response->print("\"apstate\": \"" + String(apInfo.state) + "\"");
+        response->print("\"apstate\": \"" + String(apInfo.state) + "\", ");
+        // always include the live preview setting; fresh devices have no
+        // apconfig.json yet and the UI hides all tag images without this key.
+        // (if the file exists, its value comes later in the JSON and wins)
+        response->print("\"preview\": " + String(config.preview));
 
         File configFile = contentFS->open("/current/apconfig.json", "r");
         if (configFile) {
