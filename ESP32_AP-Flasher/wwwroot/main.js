@@ -1142,6 +1142,8 @@ document.addEventListener("loadTab", function (event) {
 						else  {
 							$("#owm_api_key").value = "";
 						}
+						$("#apcfgwebuser").value = data.webuser ?? '';
+						$("#apcfgwebpass").value = data.webpass ?? '';
 					}
 				})
 			$('#apcfgmsg').innerHTML = '';
@@ -1182,6 +1184,8 @@ $('#apcfgsave').onclick = function () {
 	formData.append('discovery', $('#apcdiscovery').value);
 	formData.append('showtimestamp', $('#apcshowtimestamp').value);
 	formData.append('owm_api_key', $('#owm_api_key').value);
+	formData.append('webuser', $('#apcfgwebuser').value);
+	formData.append('webpass', $('#apcfgwebpass').value);
 	fetch("save_apcfg", {
 		method: "POST",
 		body: formData

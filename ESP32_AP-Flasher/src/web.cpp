@@ -36,6 +36,23 @@
 AsyncWebServer server(80);
 AsyncWebSocket ws("/ws");
 WifiManager wm;
+static AsyncAuthenticationMiddleware authMiddleware;
+
+// apply (or remove) HTTP basic-auth according to config; takes effect immediately.
+// Only protects tag *content* (preview images, raw tag data, file browser) so
+// strangers on the LAN can't see what is displayed on the tags. The UI itself,
+// uploads and the websocket (buttons!) stay open for integrations.
+static void applyWebAuth() {
+    if (config.webPass.length()) {
+        authMiddleware.setUsername(config.webUser.length() ? config.webUser.c_str() : "admin");
+        authMiddleware.setPassword(config.webPass.c_str());
+        authMiddleware.setRealm("OpenEPaperLink");
+        authMiddleware.setAuthType(AsyncAuthType::AUTH_BASIC);
+        authMiddleware.generateHash();
+    } else {
+        authMiddleware.setAuthType(AsyncAuthType::AUTH_NONE);
+    }
+}
 
 SemaphoreHandle_t wsMutex;
 uint32_t lastssidscan = 0;
@@ -266,7 +283,9 @@ void init_web() {
 
     wm.connectToWifi();
 
-    server.addHandler(new SPIFFSEditor(*contentFS));
+    applyWebAuth();
+
+    server.addHandler(new SPIFFSEditor(*contentFS)).addMiddleware(&authMiddleware);  // file browser exposes /current
 
     server.addHandler(&ws);
 
@@ -283,7 +302,7 @@ void init_web() {
         ESP.restart();
     });
 
-    server.serveStatic("/current", *contentFS, "/current/").setCacheControl("max-age=604800");
+    server.serveStatic("/current", *contentFS, "/current/").setCacheControl("max-age=604800").addMiddleware(&authMiddleware);  // preview images
     server.serveStatic("/tagtypes", *contentFS, "/tagtypes/").setCacheControl("max-age=300");
 
     server.on(
@@ -361,7 +380,7 @@ void init_web() {
             }
         }
         request->send(400, "text/plain", "No data available");
-    });
+    }).addMiddleware(&authMiddleware);  // raw tag content
 
     server.on("/save_cfg", HTTP_POST, [](AsyncWebServerRequest *request) {
         if (request->hasParam("mac", true)) {
@@ -721,6 +740,13 @@ void init_web() {
             else {
                config.owmApiKey[0] = 0;
             }
+        }
+        if (request->hasParam("webuser", true)) {
+            config.webUser = request->getParam("webuser", true)->value();
+        }
+        if (request->hasParam("webpass", true)) {
+            config.webPass = request->getParam("webpass", true)->value();
+            applyWebAuth();  // takes effect immediately, no reboot needed
         }
         saveAPconfig();
         setAPchannel();

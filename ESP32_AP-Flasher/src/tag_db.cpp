@@ -346,6 +346,8 @@ void initAPconfig() {
     config.wifiPower = APconfig["wifipower"].is<uint8_t>() ? APconfig["wifipower"] : 34;
     config.repo = APconfig["repo"].is<String>() ? APconfig["repo"].as<String>() : String("OpenEPaperLink/OpenEPaperLink");
     config.env = APconfig["env"].is<String>() ? APconfig["env"].as<String>() : String(STR(BUILD_ENV_NAME));
+    config.webUser = APconfig["webuser"].is<String>() ? APconfig["webuser"].as<String>() : String("admin");
+    config.webPass = APconfig["webpass"].is<String>() ? APconfig["webpass"].as<String>() : String("");
     if (APconfig["timezone"]) {
         strlcpy(config.timeZone, APconfig["timezone"], sizeof(config.timeZone));
     } else {
@@ -379,6 +381,8 @@ void saveAPconfig() {
     APconfig["discovery"] = config.discovery;
     APconfig["showtimestamp"] = config.showtimestamp;
     APconfig["owm_api_key"] = config.owmApiKey;
+    APconfig["webuser"] = config.webUser;
+    APconfig["webpass"] = config.webPass;
     serializeJsonPretty(APconfig, configFile);
     configFile.close();
     xSemaphoreGive(fsMutex);

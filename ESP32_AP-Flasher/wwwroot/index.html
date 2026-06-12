@@ -286,6 +286,14 @@ options:
 					<label for="apcfgalias">Alias</label>
 					<input id="apcfgalias" type="text">
 				</p>
+				<p title="Protect tag content (preview images, raw tag data, file browser) with HTTP basic authentication so strangers on the network can't see what is displayed on the tags. The UI itself, uploads and the websocket stay accessible without login. Takes effect immediately.">
+					<label for="apcfgwebuser">Content login user</label>
+					<input id="apcfgwebuser" type="text" autocomplete="off" placeholder="admin">
+				</p>
+				<p title="Password for viewing tag content. Empty = no login required.">
+					<label for="apcfgwebpass">Content login password</label>
+					<input id="apcfgwebpass" type="password" autocomplete="new-password" placeholder="(empty = disabled)">
+				</p>
 				<p>
 					<label for="apcfgchid">IEEE 802.15.4 channel</label>
 					<select id="apcfgchid">

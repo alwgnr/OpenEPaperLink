@@ -79,6 +79,8 @@ struct Config {
     String env;
     uint8_t showtimestamp;
     char owmApiKey[33];
+    String webUser;  // HTTP basic-auth user for the web interface
+    String webPass;  // HTTP basic-auth password; empty = no authentication
 };
 
 struct Color {
