@@ -10,6 +10,8 @@
 #include <WiFi.h>
 
 #include <algorithm>
+#include <vector>
+#include <esp_random.h>
 
 #include "AsyncJson.h"
 #include "LittleFS.h"
@@ -36,21 +38,49 @@
 AsyncWebServer server(80);
 AsyncWebSocket ws("/ws");
 WifiManager wm;
-static AsyncAuthenticationMiddleware authMiddleware;
 
-// apply (or remove) HTTP basic-auth according to config; takes effect immediately.
-// Only protects tag *content* (preview images, raw tag data, file browser) so
-// strangers on the LAN can't see what is displayed on the tags. The UI itself,
-// uploads and the websocket (buttons!) stay open for integrations.
-static void applyWebAuth() {
-    if (config.webPass.length()) {
-        authMiddleware.setUsername(config.webUser.length() ? config.webUser.c_str() : "admin");
-        authMiddleware.setPassword(config.webPass.c_str());
-        authMiddleware.setRealm("OpenEPaperLink");
-        authMiddleware.setAuthType(AsyncAuthType::AUTH_BASIC);
-        authMiddleware.generateHash();
+// ---- session-based login for the web UI / tag content -----------------------
+// A login page gates the human-facing UI and the visual content (preview images,
+// raw tag data, file browser, DB dump) so strangers on the LAN can't see what is
+// displayed on the tags. The machine API (websocket buttons, json/img upload,
+// config, ...) stays open so integrations keep working without credentials.
+// When no password is configured, the gate is fully open (no login page).
+static std::vector<String> sessionTokens;
+
+static String newSessionToken() {
+    char buf[33];
+    for (int i = 0; i < 16; i++) sprintf(buf + i * 2, "%02x", (uint8_t)(esp_random() & 0xFF));
+    return String(buf);
+}
+
+static String cookieToken(AsyncWebServerRequest *request) {
+    if (!request->hasHeader("Cookie")) return String();
+    String cookie = request->getHeader("Cookie")->value();
+    int idx = cookie.indexOf("oeplsession=");
+    if (idx < 0) return String();
+    String tok = cookie.substring(idx + 12);
+    int sep = tok.indexOf(';');
+    if (sep >= 0) tok = tok.substring(0, sep);
+    tok.trim();
+    return tok;
+}
+
+static bool hasValidSession(AsyncWebServerRequest *request) {
+    if (config.webPass.length() == 0) return true;  // auth disabled
+    String tok = cookieToken(request);
+    if (tok.length() == 0) return false;
+    for (const String &t : sessionTokens) {
+        if (t == tok) return true;
+    }
+    return false;
+}
+
+// middleware: 401 for content endpoints when not logged in
+static void sessionGuard(AsyncWebServerRequest *request, ArMiddlewareNext next) {
+    if (hasValidSession(request)) {
+        next();
     } else {
-        authMiddleware.setAuthType(AsyncAuthType::AUTH_NONE);
+        request->send(401, "text/plain", "login required");
     }
 }
 
@@ -283,11 +313,50 @@ void init_web() {
 
     wm.connectToWifi();
 
-    applyWebAuth();
-
-    server.addHandler(new SPIFFSEditor(*contentFS)).addMiddleware(&authMiddleware);  // file browser exposes /current
+    server.addHandler(new SPIFFSEditor(*contentFS)).addMiddleware(sessionGuard);  // file browser exposes /current
 
     server.addHandler(&ws);
+
+    // --- login page / logout / session-gated UI entry ---
+    server.on("/login", HTTP_GET, [](AsyncWebServerRequest *request) {
+        request->send(*contentFS, "/www/login.html");
+    });
+    server.on("/login", HTTP_POST, [](AsyncWebServerRequest *request) {
+        String user = request->hasParam("user", true) ? request->getParam("user", true)->value() : String();
+        String pass = request->hasParam("pass", true) ? request->getParam("pass", true)->value() : String();
+        String wantUser = config.webUser.length() ? config.webUser : String("admin");
+        if (config.webPass.length() && user == wantUser && pass == config.webPass) {
+            String tok = newSessionToken();
+            if (sessionTokens.size() >= 8) sessionTokens.erase(sessionTokens.begin());
+            sessionTokens.push_back(tok);
+            AsyncWebServerResponse *resp = request->beginResponse(200, "text/plain", "ok");
+            resp->addHeader("Set-Cookie", "oeplsession=" + tok + "; Path=/; Max-Age=604800; HttpOnly; SameSite=Lax");
+            request->send(resp);
+        } else {
+            request->send(401, "text/plain", "invalid credentials");
+        }
+    });
+    server.on("/logout", HTTP_GET, [](AsyncWebServerRequest *request) {
+        String tok = cookieToken(request);
+        if (tok.length()) {
+            for (size_t i = 0; i < sessionTokens.size(); i++) {
+                if (sessionTokens[i] == tok) { sessionTokens.erase(sessionTokens.begin() + i); break; }
+            }
+        }
+        AsyncWebServerResponse *resp = request->beginResponse(302, "text/plain", "");
+        resp->addHeader("Location", "/login");
+        resp->addHeader("Set-Cookie", "oeplsession=; Path=/; Max-Age=0");
+        request->send(resp);
+    });
+    // gate the UI entry point: redirect to the login page when not signed in
+    server.on("/", HTTP_GET, [](AsyncWebServerRequest *request) {
+        if (hasValidSession(request)) request->send(*contentFS, "/www/index.html");
+        else request->redirect("/login");
+    });
+    server.on("/index.html", HTTP_GET, [](AsyncWebServerRequest *request) {
+        if (hasValidSession(request)) request->send(*contentFS, "/www/index.html");
+        else request->redirect("/login");
+    });
 
     server.on("/reboot", HTTP_POST, [](AsyncWebServerRequest *request) {
         request->send(200, "text/plain", "OK Reboot");
@@ -302,7 +371,7 @@ void init_web() {
         ESP.restart();
     });
 
-    server.serveStatic("/current", *contentFS, "/current/").setCacheControl("max-age=604800").addMiddleware(&authMiddleware);  // preview images
+    server.serveStatic("/current", *contentFS, "/current/").setCacheControl("max-age=604800").addMiddleware(sessionGuard);  // preview images
     server.serveStatic("/tagtypes", *contentFS, "/tagtypes/").setCacheControl("max-age=300");
 
     server.on(
@@ -380,7 +449,7 @@ void init_web() {
             }
         }
         request->send(400, "text/plain", "No data available");
-    }).addMiddleware(&authMiddleware);  // raw tag content
+    }).addMiddleware(sessionGuard);  // raw tag content
 
     server.on("/save_cfg", HTTP_POST, [](AsyncWebServerRequest *request) {
         if (request->hasParam("mac", true)) {
@@ -757,7 +826,7 @@ void init_web() {
         }
         if (request->hasParam("webpass", true)) {
             config.webPass = request->getParam("webpass", true)->value();
-            applyWebAuth();  // takes effect immediately, no reboot needed
+            sessionTokens.clear();  // force re-login after a password change
         }
         saveAPconfig();
         setAPchannel();
@@ -921,7 +990,7 @@ void init_web() {
     server.on("/backup_db", HTTP_GET, [](AsyncWebServerRequest *request) {
         saveDB("/current/tagDB.json");
         request->send(*contentFS, "/current/tagDB.json", String(), true);
-    }).addMiddleware(&authMiddleware);  // DB dump contains per-tag content config (modecfgjson)
+    }).addMiddleware(sessionGuard);  // DB dump contains per-tag content config (modecfgjson)
     server.on(
         "/restore_db", HTTP_POST, [](AsyncWebServerRequest *request) {
             request->send(200);

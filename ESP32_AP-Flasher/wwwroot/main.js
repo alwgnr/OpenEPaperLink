@@ -16,6 +16,7 @@ let tagTypes = {};
 let apConfig = {};
 let tagDB = {};
 let webpassDirty = false;  // true once the user edits the content-password field
+const WEBPASS_DUMMY = '••••••';  // shown (black) when a password is set; never sent unchanged
 const previewWindows = [];
 
 const apstate = [
@@ -54,6 +55,8 @@ window.addEventListener("loadConfig", function () {
 			// fresh devices have no apconfig.json yet -> "preview" key missing.
 			// Default to enabled, otherwise all tag preview images stay hidden.
 			if (apConfig.preview === undefined) apConfig.preview = 1;
+			// show the logout button only when content login is enabled
+			if ($('#logout-btn')) $('#logout-btn').style.display = data.webauth ? '' : 'none';
 
 			if (data.alias) {
 				$(".logo").innerHTML = data.alias;
@@ -87,6 +90,9 @@ window.addEventListener("loadConfig", function () {
 });
 
 window.addEventListener("load", function () {
+    const logoutBtn = $('#logout-btn');
+    if (logoutBtn) logoutBtn.addEventListener('click', () => { location.href = '/logout'; });
+
     const themeToggle = $('#theme-toggle');
     if (themeToggle) {
         const prefersDarkScheme = window.matchMedia('(prefers-color-scheme: dark)');
@@ -1144,10 +1150,11 @@ document.addEventListener("loadTab", function (event) {
 							$("#owm_api_key").value = "";
 						}
 						$("#apcfgwebuser").value = data.webuser ?? '';
-						// the password is never sent to the client; only submit it on
-						// save when the user actually typed a new value (webpassDirty)
-						$("#apcfgwebpass").value = '';
-						$("#apcfgwebpass").placeholder = data.webauth ? '••••• (unchanged — clear & save to disable)' : '(empty = disabled)';
+						// the password is never sent to the client. Show a black dummy
+						// when one is set; clearing the field reveals the gray placeholder
+						// ("Empty = ...") and saving then disables the login.
+						$("#apcfgwebpass").placeholder = 'Empty = no login required';
+						$("#apcfgwebpass").value = data.webauth ? WEBPASS_DUMMY : '';
 						webpassDirty = false;
 					}
 				})
@@ -1192,9 +1199,11 @@ $('#apcfgsave').onclick = function () {
 	formData.append('showtimestamp', $('#apcshowtimestamp').value);
 	formData.append('owm_api_key', $('#owm_api_key').value);
 	formData.append('webuser', $('#apcfgwebuser').value);
-	// only send the password when the user changed it, so saving other settings
-	// keeps the current password instead of wiping it (empty+dirty = disable)
-	if (webpassDirty) formData.append('webpass', $('#apcfgwebpass').value);
+	// only send the password when the user changed it (and not just the dummy),
+	// so saving other settings keeps it; empty after editing = disable
+	if (webpassDirty && $('#apcfgwebpass').value !== WEBPASS_DUMMY) {
+		formData.append('webpass', $('#apcfgwebpass').value);
+	}
 	fetch("save_apcfg", {
 		method: "POST",
 		body: formData

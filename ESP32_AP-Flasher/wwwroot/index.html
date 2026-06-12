@@ -6,9 +6,9 @@
 	<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=0" />
 
 	<title>Open EPaper Link Access Point</title>
-	<script src="main.js?2.78" defer></script>
+	<script src="main.js?2.80" defer></script>
 	<script src="g5decoder.js?2.74"></script>
-	<link rel="stylesheet" href="main.css?2.79" type="text/css" />
+	<link rel="stylesheet" href="main.css?2.80" type="text/css" />
 	<!--<link rel="icon" type="image/vnd.icon" href="favicon.ico">-->
 	<link rel="stylesheet"
 		  href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@24,400,0,0" />
@@ -30,6 +30,7 @@
 					<div class="tablinks material-symbols-outlined" data-target="configtab" title="Settings">settings</div>
 					<div class="tablinks material-symbols-outlined" data-target="logtab" title="Logging">text_snippet</div>
 					<button id="theme-toggle" class="theme-toggle-btn material-symbols-outlined" title="Toggle Theme">light_mode</button>
+					<button id="logout-btn" class="theme-toggle-btn material-symbols-outlined" title="Logout" style="display:none;">logout</button>
 				</div>
 				<!-- /tabs -->
 				<div><span id="runstate"></div>
@@ -292,7 +293,7 @@ options:
 				</p>
 				<p title="Password for viewing tag content. Empty = no login required.">
 					<label for="apcfgwebpass">Content login password</label>
-					<input id="apcfgwebpass" type="password" autocomplete="new-password" placeholder="(empty = disabled)">
+					<input id="apcfgwebpass" type="password" autocomplete="new-password" placeholder="Empty = no login required">
 				</p>
 				<p>
 					<label for="apcfgchid">IEEE 802.15.4 channel</label>
