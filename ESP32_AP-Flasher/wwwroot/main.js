@@ -15,6 +15,7 @@ const WAKEUP_REASON_WDT_RESET = 0xFE;
 let tagTypes = {};
 let apConfig = {};
 let tagDB = {};
+let webpassDirty = false;  // true once the user edits the content-password field
 const previewWindows = [];
 
 const apstate = [
@@ -372,8 +373,8 @@ function processTags(tagArray) {
 				}
 			}
 		}
-		if ($('#tag' + tagmac + ' .alias').innerHTML != alias) {
-			$('#tag' + tagmac + ' .alias').innerHTML = alias;
+		if ($('#tag' + tagmac + ' .alias').textContent != alias) {
+			$('#tag' + tagmac + ' .alias').textContent = alias;  // textContent: don't render HTML in user-set alias
 		}
 
 		let contentDefObj = getContentDefById(element.contentMode);
@@ -1143,7 +1144,11 @@ document.addEventListener("loadTab", function (event) {
 							$("#owm_api_key").value = "";
 						}
 						$("#apcfgwebuser").value = data.webuser ?? '';
-						$("#apcfgwebpass").value = data.webpass ?? '';
+						// the password is never sent to the client; only submit it on
+						// save when the user actually typed a new value (webpassDirty)
+						$("#apcfgwebpass").value = '';
+						$("#apcfgwebpass").placeholder = data.webauth ? '••••• (unchanged — clear & save to disable)' : '(empty = disabled)';
+						webpassDirty = false;
 					}
 				})
 			$('#apcfgmsg').innerHTML = '';
@@ -1162,6 +1167,8 @@ document.addEventListener("loadTab", function (event) {
 	}
 	previousTab = activeTab;
 });
+
+$('#apcfgwebpass').addEventListener('input', () => { webpassDirty = true; });
 
 $('#apcfgsave').onclick = function () {
 	let formData = new FormData();
@@ -1185,7 +1192,9 @@ $('#apcfgsave').onclick = function () {
 	formData.append('showtimestamp', $('#apcshowtimestamp').value);
 	formData.append('owm_api_key', $('#owm_api_key').value);
 	formData.append('webuser', $('#apcfgwebuser').value);
-	formData.append('webpass', $('#apcfgwebpass').value);
+	// only send the password when the user changed it, so saving other settings
+	// keeps the current password instead of wiping it (empty+dirty = disable)
+	if (webpassDirty) formData.append('webpass', $('#apcfgwebpass').value);
 	fetch("save_apcfg", {
 		method: "POST",
 		body: formData
@@ -1193,6 +1202,7 @@ $('#apcfgsave').onclick = function () {
 		.then(response => response.text())
 		.then(data => {
 			showMessage(data);
+			webpassDirty = false;
 			window.dispatchEvent(loadConfig);
 			$('#apcfgmsg').innerHTML = 'OK, Saved';
 		})

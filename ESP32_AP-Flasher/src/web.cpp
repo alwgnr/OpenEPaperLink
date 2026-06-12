@@ -638,19 +638,30 @@ void init_web() {
         // always include the live preview setting; fresh devices have no
         // apconfig.json yet and the UI hides all tag images without this key.
         // (if the file exists, its value comes later in the JSON and wins)
-        response->print("\"preview\": " + String(config.preview));
+        response->print("\"preview\": " + String(config.preview) + ", ");
+        // expose only WHETHER a content password is set, never the password itself
+        response->print("\"webauth\": " + String(config.webPass.length() ? 1 : 0));
 
         File configFile = contentFS->open("/current/apconfig.json", "r");
         if (configFile) {
-            response->print(", ");
+            // read the rest of the config and redact the webpass value before
+            // sending, so the password is never leaked to unauthenticated clients
             configFile.seek(1);
-            const size_t bufferSize = 64;
-            uint8_t buffer[bufferSize];
+            String cfg = "";
+            cfg.reserve(configFile.size() + 1);
             while (configFile.available()) {
-                size_t bytesRead = configFile.read(buffer, bufferSize);
-                response->write(buffer, bytesRead);
+                cfg += (char)configFile.read();
             }
             configFile.close();
+            int wp = cfg.indexOf("\"webpass\"");
+            if (wp >= 0) {
+                int colon = cfg.indexOf(':', wp);
+                int q1 = (colon >= 0) ? cfg.indexOf('"', colon + 1) : -1;
+                int q2 = (q1 >= 0) ? cfg.indexOf('"', q1 + 1) : -1;
+                if (q1 >= 0 && q2 > q1) cfg = cfg.substring(0, q1 + 1) + cfg.substring(q2);
+            }
+            response->print(", ");
+            response->print(cfg);
         } else {
             response->print("}");
         }
@@ -910,7 +921,7 @@ void init_web() {
     server.on("/backup_db", HTTP_GET, [](AsyncWebServerRequest *request) {
         saveDB("/current/tagDB.json");
         request->send(*contentFS, "/current/tagDB.json", String(), true);
-    });
+    }).addMiddleware(&authMiddleware);  // DB dump contains per-tag content config (modecfgjson)
     server.on(
         "/restore_db", HTTP_POST, [](AsyncWebServerRequest *request) {
             request->send(200);
