@@ -2,11 +2,24 @@
 
 #include <Arduino.h>
 #include <cstring>
+#include <mutex>
+#include <vector>
 
 #include "newproto.h"
 #include "system.h"
 #include "tag_db.h"
 #include "web.h"
+
+// Requests coming from the web (async_tcp) task, drained on the loop task.
+struct VtagRequest {
+    bool isCreate;
+    uint8_t mac[8];
+    uint8_t hwType;
+    String alias;
+    uint8_t wakeupReason;
+};
+static std::vector<VtagRequest> vtagRequests;
+static std::mutex vtagReqMutex;
 
 bool vtagIsVirtual(const uint8_t* mac) {
     if (mac == nullptr) return false;
@@ -73,6 +86,43 @@ void vtagEvent(const uint8_t* mac, uint8_t wakeupReason) {
         wakeupReason == WAKEUP_REASON_BUTTON3 || wakeupReason == WAKEUP_REASON_GPIO ||
         wakeupReason == WAKEUP_REASON_NFC) {
         taginfo->nextupdate = 0;
+    }
+}
+
+void vtagEnqueueCreate(const uint8_t* mac, uint8_t hwType, const String& alias) {
+    VtagRequest r;
+    r.isCreate = true;
+    memcpy(r.mac, mac, sizeof(r.mac));
+    r.hwType = hwType;
+    r.alias = alias;
+    r.wakeupReason = 0;
+    std::lock_guard<std::mutex> lock(vtagReqMutex);
+    vtagRequests.push_back(r);
+}
+
+void vtagEnqueueEvent(const uint8_t* mac, uint8_t wakeupReason) {
+    VtagRequest r;
+    r.isCreate = false;
+    memcpy(r.mac, mac, sizeof(r.mac));
+    r.hwType = 0;
+    r.wakeupReason = wakeupReason;
+    std::lock_guard<std::mutex> lock(vtagReqMutex);
+    vtagRequests.push_back(r);
+}
+
+void vtagProcessPending() {
+    std::vector<VtagRequest> local;
+    {
+        std::lock_guard<std::mutex> lock(vtagReqMutex);
+        if (vtagRequests.empty()) return;
+        local.swap(vtagRequests);
+    }
+    for (const VtagRequest& r : local) {
+        if (r.isCreate) {
+            vtagCreate(r.mac, r.hwType, r.alias);
+        } else {
+            vtagEvent(r.mac, r.wakeupReason);
+        }
     }
 }
 

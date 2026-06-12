@@ -201,6 +201,7 @@ void loop() {
     if (intervalContentRunner.doRun() && (apInfo.state == AP_STATE_ONLINE || apInfo.state == AP_STATE_NORADIO)) {
         contentRunner();
     }
+    vtagProcessPending();  // run queued virtual-tag actions from the web task here
     if (intervalVirtualCheckin.doRun() && config.runStatus != RUNSTATUS_STOP) {
         vtagAutoCheckin();
     }

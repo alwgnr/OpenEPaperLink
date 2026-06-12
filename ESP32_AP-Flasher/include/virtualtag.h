@@ -28,6 +28,14 @@ void vtagEvent(const uint8_t* mac, uint8_t wakeupReason);
 // from the main loop.
 void vtagAutoCheckin();
 
+// Thread-safe request queue: the web handlers run in the async_tcp task and must
+// NOT touch tagDB / the pending queue directly (they are owned by the loop/AP
+// tasks). Instead they enqueue a request here, and vtagProcessPending() executes
+// it from the main loop, on the same task as contentRunner/vtagAutoCheckin.
+void vtagEnqueueCreate(const uint8_t* mac, uint8_t hwType, const String& alias);
+void vtagEnqueueEvent(const uint8_t* mac, uint8_t wakeupReason);
+void vtagProcessPending();
+
 // Called from sendDataAvail() when the target MAC is a virtual tag. Consumes the
 // pending data: images are "displayed" (preview written, like a real transfer),
 // LED-flash commands are forwarded to the browser. Returns true (always handled).

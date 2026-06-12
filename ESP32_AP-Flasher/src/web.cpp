@@ -514,13 +514,10 @@ void init_web() {
             request->send(400, "text/plain", "malformatted mac");
             return;
         }
-        if (tagRecord::findByMAC(mac) != nullptr) {
-            request->send(409, "text/plain", "a tag with this mac already exists");
-            return;
-        }
         uint8_t hwType = static_cast<uint8_t>(request->getParam("hwtype", true)->value().toInt());
         String alias = request->hasParam("alias", true) ? request->getParam("alias", true)->value() : String("");
-        vtagCreate(mac, hwType, alias);
+        // don't touch tagDB from the async_tcp task; let the loop task create it
+        vtagEnqueueCreate(mac, hwType, alias);
         request->send(200, "text/plain", "Ok, virtual tag created");
     });
 
@@ -536,10 +533,6 @@ void init_web() {
             request->send(400, "text/plain", "malformatted mac");
             return;
         }
-        if (!vtagIsVirtual(mac)) {
-            request->send(400, "text/plain", "not a virtual tag");
-            return;
-        }
         String event = request->getParam("event", true)->value();
         uint8_t wakeupReason = WAKEUP_REASON_TIMED;
         if (event == "button1") wakeupReason = WAKEUP_REASON_BUTTON1;
@@ -547,7 +540,8 @@ void init_web() {
         else if (event == "button3") wakeupReason = WAKEUP_REASON_BUTTON3;
         else if (event == "gpio") wakeupReason = WAKEUP_REASON_GPIO;
         else if (event == "nfc") wakeupReason = WAKEUP_REASON_NFC;
-        vtagEvent(mac, wakeupReason);
+        // enqueue; the loop task validates it's a virtual tag and runs it
+        vtagEnqueueEvent(mac, wakeupReason);
         request->send(200, "text/plain", "Ok, event sent");
     });
 
