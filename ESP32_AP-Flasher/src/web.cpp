@@ -602,7 +602,17 @@ void init_web() {
             request->send(400, "text/plain", "malformatted mac");
             return;
         }
-        uint8_t hwType = static_cast<uint8_t>(request->getParam("hwtype", true)->value().toInt());
+        String hwStr = request->getParam("hwtype", true)->value();
+        bool hwNumeric = hwStr.length() > 0;
+        for (size_t i = 0; i < hwStr.length(); i++) {
+            if (hwStr[i] < '0' || hwStr[i] > '9') { hwNumeric = false; break; }
+        }
+        long hwVal = hwStr.toInt();
+        if (!hwNumeric || hwVal < 0 || hwVal > 255) {
+            request->send(400, "text/plain", "invalid hwtype (expected 0-255)");
+            return;
+        }
+        uint8_t hwType = static_cast<uint8_t>(hwVal);
         String alias = request->hasParam("alias", true) ? request->getParam("alias", true)->value() : String("");
         // don't touch tagDB from the async_tcp task; let the loop task create it
         vtagEnqueueCreate(mac, hwType, alias);
@@ -622,12 +632,17 @@ void init_web() {
             return;
         }
         String event = request->getParam("event", true)->value();
-        uint8_t wakeupReason = WAKEUP_REASON_TIMED;
-        if (event == "button1") wakeupReason = WAKEUP_REASON_BUTTON1;
+        uint8_t wakeupReason;
+        if (event == "checkin") wakeupReason = WAKEUP_REASON_TIMED;
+        else if (event == "button1") wakeupReason = WAKEUP_REASON_BUTTON1;
         else if (event == "button2") wakeupReason = WAKEUP_REASON_BUTTON2;
         else if (event == "button3") wakeupReason = WAKEUP_REASON_BUTTON3;
         else if (event == "gpio") wakeupReason = WAKEUP_REASON_GPIO;
         else if (event == "nfc") wakeupReason = WAKEUP_REASON_NFC;
+        else {
+            request->send(400, "text/plain", "unknown event");
+            return;
+        }
         // enqueue; the loop task validates it's a virtual tag and runs it
         vtagEnqueueEvent(mac, wakeupReason);
         request->send(200, "text/plain", "Ok, event sent");

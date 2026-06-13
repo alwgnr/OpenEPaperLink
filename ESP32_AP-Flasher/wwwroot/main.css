@@ -271,11 +271,6 @@ label {
 		padding: 0px 10px;
 	}
 
-	& #addVirtualTag {
-		padding: 0px 6px;
-		margin-right: -12px;  /* sit right next to the filter icon (header gap is 2em=24px) */
-	}
-
 	& h3 {
 		padding-bottom: 0px;
 	}
@@ -284,6 +279,11 @@ label {
 		flex-grow: 2;
 		align-self: center;
 	}
+}
+
+#addVirtualTag {
+	padding: 0px 6px;
+	margin-right: -12px;  /* sit right next to the filter icon (header gap is 2em=24px) */
 }
 
 .tabheader {

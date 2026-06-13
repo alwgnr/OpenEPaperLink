@@ -846,25 +846,32 @@ function animateVirtualLed(mac, hex) {
 	const delays = [b[3], b[6], b[9]];
 	const repeats = b[10];
 
-	const steps = [];
-	for (let r = 0; r <= repeats; r++) {
-		for (let c = 0; c < 3; c++) {
-			if (counts[c] === 0) continue;
-			const css = rgb332ToCss(colors[c]);
-			const on = Math.max(60, speeds[c] * 40);
-			for (let n = 0; n < counts[c]; n++) {
-				steps.push({ color: css, ms: on });
-				steps.push({ color: null, ms: on });
-			}
-			if (delays[c]) steps.push({ color: null, ms: delays[c] * 10 });
+	// build a single flash cycle (bounded: <=3 colors * 15 blinks * 2 + gaps)
+	// and replay it (repeats+1) times. `repeats` is an unbounded byte from the
+	// device, so pre-building every step would materialize tens of thousands of
+	// objects and stall the UI; replaying one cycle keeps memory constant.
+	const cycle = [];
+	for (let c = 0; c < 3; c++) {
+		if (counts[c] === 0) continue;
+		const css = rgb332ToCss(colors[c]);
+		const on = Math.max(60, speeds[c] * 40);
+		for (let n = 0; n < counts[c]; n++) {
+			cycle.push({ color: css, ms: on });
+			cycle.push({ color: null, ms: on });
 		}
+		if (delays[c]) cycle.push({ color: null, ms: delays[c] * 10 });
 	}
+	if (cycle.length === 0) { ledOff(); return; }
 
 	let idx = 0;
+	let rep = 0;
 	const run = () => {
 		if (seq !== el._ledSeq) return;  // a newer animation took over
-		if (idx >= steps.length) { ledOff(); return; }
-		const s = steps[idx++];
+		if (idx >= cycle.length) {
+			idx = 0;
+			if (++rep > repeats) { ledOff(); return; }  // repeats+1 cycles total
+		}
+		const s = cycle[idx++];
 		if (s.color) {
 			el.classList.add('on');
 			el.style.background = s.color;
